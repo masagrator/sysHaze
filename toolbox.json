@@ -1,0 +1,5 @@
+{
+	"name"  : "sysHaze",
+	"tid"   : "0000000000000123",
+	"requires_reboot": false
+}
