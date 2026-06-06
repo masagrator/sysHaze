@@ -21,3 +21,5 @@ f.e.
 [FPSLocker]
 Path=SaltySD/plugins/FPSLocker/patches
 ```
+
+Each ini change requires sysmodule restart.
