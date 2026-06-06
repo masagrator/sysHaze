@@ -9,3 +9,15 @@ Requires 4MB of RAM to work.
 
 You can turn it off and on with Sysmodules overlay.<br>
 https://github.com/ppkantorski/ovl-sysmodules/releases
+
+If you want to add custom paths as partitions, create `config.ini` in `sdmc:/config/sysHaze/` and write there
+```ini
+[Name]
+Path=FolderPath
+```
+
+f.e.
+```ini
+[FPSLocker]
+Path=SaltySD/plugins/FPSLocker/patches
+```
