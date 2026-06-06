@@ -20,6 +20,11 @@ f.e.
 ```ini
 [FPSLocker]
 Path=SaltySD/plugins/FPSLocker/patches
+
+[Contents]
+Path=atmosphere/contents
 ```
 
 Each ini change requires sysmodule restart.
+
+Max 8 entries is allowed.
