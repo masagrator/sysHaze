@@ -25,6 +25,6 @@ Path=SaltySD/plugins/FPSLocker/patches
 Path=atmosphere/contents
 ```
 
-Each ini change requires sysmodule restart.
+Each ini change requires sysmodule restart for it to be applied.
 
 Max 8 entries is allowed.
