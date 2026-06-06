@@ -57,12 +57,26 @@ namespace haze {
         m_session_open = true;
         m_object_database.Initialize(m_object_heap);
 
-        /* Create the root storages. */
+        /* Register the SD card storage root. */
         PtpObject *object;
         R_TRY(m_object_database.CreateOrFindObject("", "", PtpGetObjectHandles_RootParent, std::addressof(object)));
-
-        /* Register the root storages. */
         m_object_database.RegisterObject(object, StorageId_SdmcFs);
+
+        /* Register each custom partition root.
+         *
+         * The root path (e.g. "/SaltySD/FPSLocker") is used as the `name`
+         * argument so that the resulting object path becomes "//SaltySD/FPSLocker".
+         * The Switch FS normalises leading double-slashes to a single slash, so
+         * all subsequent file operations resolve correctly.  The custom partition's
+         * storage_id (0xFFFFFFF0..0xFFFFFFF7) is well above the auto-increment
+         * counter (which starts at 1), so there is no collision with regular
+         * object handles. */
+        for (size_t i = 0; i < m_custom_partition_count; i++) {
+            const auto &part = m_custom_partitions[i];
+            PtpObject *root;
+            R_TRY(m_object_database.CreateOrFindObject("", part.root_path, PtpGetObjectHandles_RootParent, std::addressof(root)));
+            m_object_database.RegisterObject(root, part.storage_id);
+        }
 
         /* Write the success response. */
         R_RETURN(this->WriteResponse(PtpResponseCode_Ok));
@@ -82,9 +96,16 @@ namespace haze {
 
         PtpDataBuilder db(m_buffers->usb_bulk_write_buffer, std::addressof(m_usb_server));
 
-        /* Write the storage ID array. */
+        /* Build the storage ID array: SD card first, then any custom partitions. */
         R_TRY(db.WriteVariableLengthData(m_request_header, [&] {
-            R_RETURN(db.AddArray(SupportedStorageIds, util::size(SupportedStorageIds)));
+            const u32 total = 1 + static_cast<u32>(m_custom_partition_count);
+            R_TRY(db.Add(total));
+
+            R_TRY(db.Add(static_cast<u32>(StorageId_SdmcFs)));
+            for (size_t i = 0; i < m_custom_partition_count; i++) {
+                R_TRY(db.Add(m_custom_partitions[i].storage_id));
+            }
+            R_SUCCEED();
         }));
 
         /* Write the success response. */
@@ -100,22 +121,27 @@ namespace haze {
         R_TRY(dp.Read(std::addressof(storage_id)));
         R_TRY(dp.Finalize());
 
-        /* Get the info from fs. */
-        switch (storage_id) {
-            case StorageId_SdmcFs:
-                {
-                    s64 total_space, free_space;
-                    R_TRY(m_fs.GetTotalSpace("/", std::addressof(total_space)));
-                    R_TRY(m_fs.GetFreeSpace("/", std::addressof(free_space)));
+        /* Get the info from fs.
+         * Custom partitions share the sdmc filesystem, so they report the same
+         * total/free space; only the storage_description differs. */
+        if (storage_id == StorageId_SdmcFs) {
+            s64 total_space, free_space;
+            R_TRY(m_fs.GetTotalSpace("/", std::addressof(total_space)));
+            R_TRY(m_fs.GetFreeSpace("/", std::addressof(free_space)));
 
-                    storage_info.max_capacity         = total_space;
-                    storage_info.free_space_in_bytes  = free_space;
-                    storage_info.free_space_in_images = 0;
-                    storage_info.storage_description  = "SD Card";
-                }
-                break;
-            default:
-                R_THROW(haze::ResultInvalidStorageId());
+            storage_info.max_capacity        = total_space;
+            storage_info.free_space_in_bytes = free_space;
+            storage_info.storage_description = "SD Card";
+        } else if (const auto *part = this->FindCustomPartitionById(storage_id); part != nullptr) {
+            s64 total_space, free_space;
+            R_TRY(m_fs.GetTotalSpace("/", std::addressof(total_space)));
+            R_TRY(m_fs.GetFreeSpace("/", std::addressof(free_space)));
+
+            storage_info.max_capacity        = total_space;
+            storage_info.free_space_in_bytes = free_space;
+            storage_info.storage_description = part->name;
+        } else {
+            R_THROW(haze::ResultInvalidStorageId());
         }
 
         /* Write the storage info data. */
@@ -221,11 +247,21 @@ namespace haze {
         PtpObjectInfo object_info(DefaultObjectInfo);
 
         if (object_id == StorageId_SdmcFs) {
-            /* The SD Card directory has some special properties. */
+            /* The SD Card root has some special properties. */
+            object_info.storage_id    = StorageId_SdmcFs;
             object_info.object_format    = PtpObjectFormatCode_Association;
             object_info.association_type = PtpAssociationType_GenericFolder;
             object_info.filename         = "SD Card";
+        } else if (const auto *part = this->FindCustomPartitionById(object_id); part != nullptr) {
+            /* Custom partition root: show the configured display name. */
+            object_info.storage_id       = (haze::StorageId)part->storage_id;
+            object_info.object_format    = PtpObjectFormatCode_Association;
+            object_info.association_type = PtpAssociationType_GenericFolder;
+            object_info.filename         = part->name;
         } else {
+            /* Regular file or directory. Determine which storage it belongs to. */
+            object_info.storage_id = static_cast<StorageId>(this->GetStorageForObject(object_id));
+
             /* Figure out what type of object this is. */
             FsDirEntryType entry_type;
             R_TRY(m_fs.GetEntryType(obj->GetName(), std::addressof(entry_type)));
@@ -385,7 +421,7 @@ namespace haze {
 
         /* Make a new object with the intended name. */
         PtpNewObjectInfo new_object_info;
-        new_object_info.storage_id       = StorageId_SdmcFs;
+        new_object_info.storage_id       = static_cast<StorageId>(this->GetStorageForObject(parent_object));
         new_object_info.parent_object_id = parent_object == storage_id ? 0 : parent_object;
 
         /* Create the object in the database. */
@@ -479,8 +515,8 @@ namespace haze {
         R_TRY(dp.Read(std::addressof(object_id)));
         R_TRY(dp.Finalize());
 
-        /* Disallow deleting the storage root. */
-        R_UNLESS(object_id != StorageId_SdmcFs, haze::ResultInvalidObjectId());
+        /* Disallow deleting any storage root. */
+        R_UNLESS(!this->IsStorageRoot(object_id), haze::ResultInvalidObjectId());
 
         /* Check if we know about the object. If we don't, it's an error. */
         auto * const obj = m_object_database.GetObjectById(object_id);

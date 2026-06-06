@@ -38,7 +38,14 @@ namespace haze {
     constexpr auto MtpDeviceModel          = "Nintendo Switch";
 
     enum StorageId : u32 {
-        StorageId_SdmcFs = 0xffffffffu - 1,
+        /* Custom partition storage IDs (up to 8, from 0xFFFFFFF0). */
+        /* These are well above the auto-increment object ID counter (starts at 1), */
+        /* so they will never collide with dynamically-assigned object handles. */
+        StorageId_Custom0 = 0xFFFFFFF0u,
+        StorageId_Custom7 = 0xFFFFFFF7u,
+
+        /* SD card storage ID. */
+        StorageId_SdmcFs  = 0xFFFFFFFEu,
     };
 
     constexpr PtpOperationCode SupportedOperationCodes[] = {
@@ -93,9 +100,8 @@ namespace haze {
         return false;
     }
 
-    constexpr const StorageId SupportedStorageIds[] = {
-        StorageId_SdmcFs,
-    };
+    /* Storage ID list is dynamic (populated at session open from INI config). */
+    /* See PtpResponder::m_custom_partitions and PtpResponder::GetStorageIds(). */
 
     struct PtpStorageInfo {
         PtpStorageType storage_type;

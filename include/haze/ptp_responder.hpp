@@ -36,13 +36,29 @@ namespace haze {
             bool m_session_open;
 
             PtpObjectDatabase m_object_database;
+        private:
+            /* Custom partition support (loaded from INI config at Initialize). */
+            struct CustomPartition {
+                u32  storage_id;
+                char name[64];         /* Display name (INI section header). */
+                char root_path[0x301]; /* Absolute path on sdmc (value of Path= key). */
+            };
+            static constexpr size_t MaxCustomPartitions = 8;
+            CustomPartition m_custom_partitions[MaxCustomPartitions];
+            size_t m_custom_partition_count;
         public:
-            constexpr explicit PtpResponder() : m_usb_server(), m_fs(), m_request_header(), m_object_heap(), m_buffers(), m_send_object_id(), m_session_open(), m_object_database() { /* ... */ }
+            constexpr explicit PtpResponder() : m_usb_server(), m_fs(), m_request_header(), m_object_heap(), m_buffers(), m_send_object_id(), m_session_open(), m_object_database(), m_custom_partitions(), m_custom_partition_count(0) { /* ... */ }
 
             Result Initialize(EventReactor *reactor, PtpObjectHeap *object_heap);
             void Finalize();
         public:
             Result LoopProcess();
+        private:
+            /* Custom partition helpers. */
+            void LoadCustomPartitions();
+            bool IsStorageRoot(u32 object_id) const;
+            const CustomPartition *FindCustomPartitionById(u32 storage_id) const;
+            u32 GetStorageForObject(u32 object_id);
         private:
             /* Request handling. */
             Result HandleRequest();

@@ -165,7 +165,7 @@ namespace haze {
                     break;
                 case PtpObjectPropertyCode_StorageId:
                     {
-                        R_TRY(db.Add(StorageId_SdmcFs));
+                        R_TRY(db.Add(static_cast<u32>(this->GetStorageForObject(object_id))));
                     }
                     break;
                 case PtpObjectPropertyCode_ParentObject:
@@ -182,7 +182,14 @@ namespace haze {
                     break;
                 case PtpObjectPropertyCode_ObjectFileName:
                     {
-                        R_TRY(db.AddString(std::strrchr(obj->GetName(), '/') + 1));
+                        /* For storage roots, return the configured display name. */
+                        if (object_id == StorageId_SdmcFs) {
+                            R_TRY(db.AddString("SD Card"));
+                        } else if (const auto *part = this->FindCustomPartitionById(object_id); part != nullptr) {
+                            R_TRY(db.AddString(part->name));
+                        } else {
+                            R_TRY(db.AddString(std::strrchr(obj->GetName(), '/') + 1));
+                        }
                     }
                     break;
                 HAZE_UNREACHABLE_DEFAULT_CASE();
@@ -302,7 +309,7 @@ namespace haze {
                     case PtpObjectPropertyCode_StorageId:
                         {
                             R_TRY(db.Add(PtpDataTypeCode_U32));
-                            R_TRY(db.Add(StorageId_SdmcFs));
+                            R_TRY(db.Add(static_cast<u32>(this->GetStorageForObject(object_id))));
                         }
                         break;
                     case PtpObjectPropertyCode_ParentObject:
@@ -322,7 +329,14 @@ namespace haze {
                     case PtpObjectPropertyCode_ObjectFileName:
                         {
                             R_TRY(db.Add(PtpDataTypeCode_String));
-                            R_TRY(db.AddString(std::strrchr(obj->GetName(), '/') + 1));
+                            /* For storage roots, return the configured display name. */
+                            if (object_id == StorageId_SdmcFs) {
+                                R_TRY(db.AddString("SD Card"));
+                            } else if (const auto *part = this->FindCustomPartitionById(object_id); part != nullptr) {
+                                R_TRY(db.AddString(part->name));
+                            } else {
+                                R_TRY(db.AddString(std::strrchr(obj->GetName(), '/') + 1));
+                            }
                         }
                         break;
                     HAZE_UNREACHABLE_DEFAULT_CASE();
@@ -359,6 +373,9 @@ namespace haze {
         /* Check if we know about the object. If we don't, it's an error. */
         auto * const obj = m_object_database.GetObjectById(object_id);
         R_UNLESS(obj != nullptr, haze::ResultInvalidObjectId());
+
+        /* Disallow renaming any storage root (SD card or custom partition). */
+        R_UNLESS(!this->IsStorageRoot(object_id), haze::ResultInvalidObjectId());
 
         /* We are reading a file name. */
         R_TRY(dp.ReadString(m_buffers->filename_string_buffer));

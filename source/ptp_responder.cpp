@@ -33,10 +33,155 @@ namespace haze {
         m_object_heap = object_heap;
         m_buffers = GetBuffers();
 
+        /* Load custom partition definitions from INI config. */
+        this->LoadCustomPartitions();
+
         /* Configure fs proxy. */
         m_fs.Initialize(reactor, fsdevGetDeviceFileSystem("sdmc"));
 
         R_RETURN(m_usb_server.Initialize(std::addressof(MtpInterfaceInfo), SwitchMtpIdVendor, SwitchMtpIdProduct, reactor));
+    }
+
+    /* -----------------------------------------------------------------------
+     * INI config loader.
+     *
+     * Reads sdmc:/config/sysHaze/config.ini and populates m_custom_partitions.
+     *
+     * Expected format:
+     *   [Partition Label]
+     *   Path=/absolute/sdmc/path
+     *
+     * Up to MaxCustomPartitions (8) entries are loaded; extras are silently
+     * ignored.  Lines beginning with ; or # are comments.  Key names are
+     * case-insensitive.  Leading/trailing whitespace around the '=' is trimmed.
+     * ----------------------------------------------------------------------- */
+    void PtpResponder::LoadCustomPartitions() {
+        m_custom_partition_count = 0;
+
+        FILE *f = fopen("sdmc:/config/sysHaze/config.ini", "r");
+        if (f == nullptr) {
+            return;
+        }
+
+        /* Helpers for trimming ASCII whitespace in-place. */
+        const auto TrimRight = [](char *s, size_t len) {
+            while (len > 0 && (s[len - 1] == ' ' || s[len - 1] == '\t' ||
+                               s[len - 1] == '\r' || s[len - 1] == '\n')) {
+                s[--len] = '\0';
+            }
+        };
+        const auto TrimLeft = [](const char *s) -> const char * {
+            while (*s == ' ' || *s == '\t') { ++s; }
+            return s;
+        };
+
+        char line[512];
+        char pending_name[64]    = {};
+        bool have_section = false;
+
+        while (fgets(line, sizeof(line), f)) {
+            TrimRight(line, std::strlen(line));
+            const char *p = TrimLeft(line);
+
+            /* Skip blank lines and comments. */
+            if (*p == '\0' || *p == ';' || *p == '#') {
+                continue;
+            }
+
+            if (*p == '[') {
+                /* Section header — start a new pending entry. */
+                const char *end = std::strchr(p + 1, ']');
+                if (end != nullptr) {
+                    const size_t name_len = static_cast<size_t>(end - (p + 1));
+                    const size_t copy_len = std::min(name_len, sizeof(pending_name) - 1);
+                    std::strncpy(pending_name, p + 1, copy_len);
+                    pending_name[copy_len] = '\0';
+                    have_section = true;
+                }
+            } else if (have_section && m_custom_partition_count < MaxCustomPartitions) {
+                /* Key=Value line. */
+                const char *eq = std::strchr(p, '=');
+                if (eq != nullptr) {
+                    /* Extract and trim the key. */
+                    char key[32];
+                    const size_t key_len = static_cast<size_t>(eq - p);
+                    const size_t kcopy   = std::min(key_len, sizeof(key) - 1);
+                    std::strncpy(key, p, kcopy);
+                    key[kcopy] = '\0';
+                    TrimRight(key, std::strlen(key));
+
+                    /* Extract and trim the value. */
+                    const char *val = TrimLeft(eq + 1);
+
+                    if (::strcasecmp(key, "Path") == 0 && val[0] != '\0') {
+                        /* Record this partition. */
+                        auto &entry = m_custom_partitions[m_custom_partition_count];
+                        entry.storage_id = static_cast<u32>(StorageId_Custom0) +
+                                           static_cast<u32>(m_custom_partition_count);
+                        std::strncpy(entry.name, pending_name, sizeof(entry.name));
+                        entry.name[sizeof(entry.name) - 1] = '\0';
+                        std::strncpy(entry.root_path, val, sizeof(entry.root_path));
+                        entry.root_path[sizeof(entry.root_path) - 1] = '\0';
+                        ++m_custom_partition_count;
+
+                        /* Reset so the same section doesn't add twice. */
+                        have_section = false;
+                    }
+                }
+            }
+        }
+
+        fclose(f);
+    }
+
+    /* -----------------------------------------------------------------------
+     * Helper: IsStorageRoot
+     * Returns true if object_id is the SD card root OR any custom partition root.
+     * ----------------------------------------------------------------------- */
+    bool PtpResponder::IsStorageRoot(u32 object_id) const {
+        if (object_id == StorageId_SdmcFs) {
+            return true;
+        }
+        for (size_t i = 0; i < m_custom_partition_count; i++) {
+            if (m_custom_partitions[i].storage_id == object_id) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /* -----------------------------------------------------------------------
+     * Helper: FindCustomPartitionById
+     * Returns the custom partition entry for the given storage ID, or nullptr.
+     * ----------------------------------------------------------------------- */
+    const PtpResponder::CustomPartition *
+    PtpResponder::FindCustomPartitionById(u32 storage_id) const {
+        for (size_t i = 0; i < m_custom_partition_count; i++) {
+            if (m_custom_partitions[i].storage_id == storage_id) {
+                return &m_custom_partitions[i];
+            }
+        }
+        return nullptr;
+    }
+
+    /* -----------------------------------------------------------------------
+     * Helper: GetStorageForObject
+     * Walks the parent chain of object_id to find the storage root, then
+     * returns its object ID (which equals the storage ID).
+     * ----------------------------------------------------------------------- */
+    u32 PtpResponder::GetStorageForObject(u32 object_id) {
+        auto *obj = m_object_database.GetObjectById(object_id);
+        if (obj == nullptr) {
+            return StorageId_SdmcFs;
+        }
+        while (obj->GetParentId() != PtpGetObjectHandles_RootParent) {
+            auto *parent = m_object_database.GetObjectById(obj->GetParentId());
+            if (parent == nullptr) {
+                return StorageId_SdmcFs;
+            }
+            obj = parent;
+        }
+        return obj->GetObjectId();
     }
 
     void PtpResponder::Finalize() {
