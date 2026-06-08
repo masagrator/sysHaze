@@ -42,7 +42,7 @@ namespace haze {
     /* -----------------------------------------------------------------------
      * INI config loader.
      *
-     * Reads sdmc:/config/syshaze/config.ini and populates m_custom_partitions.
+     * Reads sdmc:/config/sysHaze/config.ini and populates m_custom_partitions.
      *
      * Expected format:
      *   [Partition Label]
@@ -55,7 +55,7 @@ namespace haze {
     void PtpResponder::LoadCustomPartitions() {
         m_custom_partition_count = 0;
 
-        FILE *f = fopen("sdmc:/config/syshaze/config.ini", "r");
+        FILE *f = fopen("sdmc:/config/sysHaze/config.ini", "r");
         if (f == nullptr) {
             return;
         }

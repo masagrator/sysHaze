@@ -54,7 +54,7 @@ namespace haze {
         this->ForceCloseSession();
 
         /* Re-read the INI config on every session open so that changes made to
-         * sdmc:/config/syshaze/config.ini take effect the next time Windows
+         * sdmc:/config/sysHaze/config.ini take effect the next time Windows
          * reconnects, without needing to restart the sysmodule. */
         this->LoadCustomPartitions();
 
