@@ -57,6 +57,10 @@ extern "C" {
             setsysExit();
         }
 
+        rc = pdmqryInitialize();
+        if (R_FAILED(rc))
+            diagAbortWithResult(rc);
+
         // Enable this if you want to use HID.
         /*rc = hidInitialize();
         if (R_FAILED(rc))

@@ -33,9 +33,6 @@ namespace haze {
         m_object_heap = object_heap;
         m_buffers = GetBuffers();
 
-        /* Load custom partition definitions from INI config. */
-        this->LoadCustomPartitions();
-
         /* Configure fs proxy. */
         m_fs.Initialize(reactor, fsdevGetDeviceFileSystem("sdmc"));
 
@@ -45,7 +42,7 @@ namespace haze {
     /* -----------------------------------------------------------------------
      * INI config loader.
      *
-     * Reads sdmc:/config/sysHaze/config.ini and populates m_custom_partitions.
+     * Reads sdmc:/config/syshaze/config.ini and populates m_custom_partitions.
      *
      * Expected format:
      *   [Partition Label]
@@ -58,7 +55,7 @@ namespace haze {
     void PtpResponder::LoadCustomPartitions() {
         m_custom_partition_count = 0;
 
-        FILE *f = fopen("sdmc:/config/sysHaze/config.ini", "r");
+        FILE *f = fopen("sdmc:/config/syshaze/config.ini", "r");
         if (f == nullptr) {
             return;
         }
@@ -120,7 +117,7 @@ namespace haze {
                                            static_cast<u32>(m_custom_partition_count);
                         std::strncpy(entry.name, pending_name, sizeof(entry.name));
                         entry.name[sizeof(entry.name) - 1] = '\0';
-                        std::strncpy(entry.root_path, val, sizeof(entry.root_path));
+                        std::strncpy(entry.root_path, val, sizeof(entry.root_path) - 1);
                         entry.root_path[sizeof(entry.root_path) - 1] = '\0';
                         ++m_custom_partition_count;
 

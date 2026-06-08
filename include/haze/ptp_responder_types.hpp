@@ -38,14 +38,18 @@ namespace haze {
     constexpr auto MtpDeviceModel          = "Nintendo Switch";
 
     enum StorageId : u32 {
-        /* Custom partition storage IDs (up to 8, from 0xFFFFFFF0). */
-        /* These are well above the auto-increment object ID counter (starts at 1), */
-        /* so they will never collide with dynamically-assigned object handles. */
-        StorageId_Custom0 = 0xFFFFFFF0u,
-        StorageId_Custom7 = 0xFFFFFFF7u,
+        /* SD Card storage ID — the lowest value ensures it always sorts first in
+         * Windows Explorer regardless of whether the host orders by GetStorageIds
+         * response order or by numeric storage ID value. */
+        StorageId_SdmcFs  = 0x00010001u,
 
-        /* SD card storage ID. */
-        StorageId_SdmcFs  = 0xFFFFFFFEu,
+        /* Custom partition storage IDs.  Allocated sequentially from Custom0.
+         * These are numerically above StorageId_SdmcFs, so SD Card always
+         * appears first.  They are also far below the theoretical auto-increment
+         * object-handle ceiling (the PtpObjectHeap at 512 KB can hold at most a
+         * few thousand objects per session), so there is no collision risk. */
+        StorageId_Custom0 = 0x00020001u,
+        StorageId_Custom7 = 0x00020008u,
     };
 
     constexpr PtpOperationCode SupportedOperationCodes[] = {
