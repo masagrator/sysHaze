@@ -173,7 +173,7 @@ namespace haze {
         .keywords               = "",
     };
 
-    constexpr u32 UsbBulkPacketBufferSize = 1_MB;
+    constexpr u32 UsbBulkPacketBufferSize = 512_KB;
     constexpr u64 FsBufferSize = UsbBulkPacketBufferSize;
     constexpr s64 DirectoryReadSize = 32;
 
