@@ -184,7 +184,7 @@ namespace haze {
                     {
                         /* For storage roots, return the configured display name. */
                         if (object_id == StorageId_SdmcFs) {
-                            R_TRY(db.AddString("SD Card"));
+                            R_TRY(db.AddString("!SD Card"));
                         } else if (const auto *part = this->FindCustomPartitionById(object_id); part != nullptr) {
                             R_TRY(db.AddString(part->name));
                         } else {
@@ -331,7 +331,7 @@ namespace haze {
                             R_TRY(db.Add(PtpDataTypeCode_String));
                             /* For storage roots, return the configured display name. */
                             if (object_id == StorageId_SdmcFs) {
-                                R_TRY(db.AddString("SD Card"));
+                                R_TRY(db.AddString("!SD Card"));
                             } else if (const auto *part = this->FindCustomPartitionById(object_id); part != nullptr) {
                                 R_TRY(db.AddString(part->name));
                             } else {

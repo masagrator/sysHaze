@@ -53,6 +53,11 @@ namespace haze {
         /* Close, if we're already open. */
         this->ForceCloseSession();
 
+        /* Re-read the INI config on every session open so that changes made to
+         * sdmc:/config/syshaze/config.ini take effect the next time Windows
+         * reconnects, without needing to restart the sysmodule. */
+        this->LoadCustomPartitions();
+
         /* Initialize the database. */
         m_session_open = true;
         m_object_database.Initialize(m_object_heap);
@@ -67,10 +72,10 @@ namespace haze {
          * The root path (e.g. "/SaltySD/FPSLocker") is used as the `name`
          * argument so that the resulting object path becomes "//SaltySD/FPSLocker".
          * The Switch FS normalises leading double-slashes to a single slash, so
-         * all subsequent file operations resolve correctly.  The custom partition's
-         * storage_id (0xFFFFFFF0..0xFFFFFFF7) is well above the auto-increment
-         * counter (which starts at 1), so there is no collision with regular
-         * object handles. */
+         * all subsequent file operations resolve correctly.  Custom partition
+         * storage IDs (StorageId_Custom0 = 0x00020001 upward) are numerically
+         * above StorageId_SdmcFs (0x00010001) and far above the auto-increment
+         * object handle counter (starts at 1), so there is no collision risk. */
         for (size_t i = 0; i < m_custom_partition_count; i++) {
             const auto &part = m_custom_partitions[i];
             PtpObject *root;
@@ -121,9 +126,10 @@ namespace haze {
         R_TRY(dp.Read(std::addressof(storage_id)));
         R_TRY(dp.Finalize());
 
-        /* Get the info from fs.
-         * Custom partitions share the sdmc filesystem, so they report the same
-         * total/free space; only the storage_description differs. */
+        /* Get space info from fs.  Size figures always reflect the whole SD card;
+         * per-directory usage is too expensive to compute in a sysmodule.
+         * Custom partitions additionally verify the path exists: a missing folder
+         * reports 0/0 to signal unavailability without breaking the session. */
         if (storage_id == StorageId_SdmcFs) {
             s64 total_space, free_space;
             R_TRY(m_fs.GetTotalSpace("/", std::addressof(total_space)));
@@ -131,11 +137,24 @@ namespace haze {
 
             storage_info.max_capacity        = total_space;
             storage_info.free_space_in_bytes = free_space;
-            storage_info.storage_description = "SD Card";
+            storage_info.storage_description = "!SD Card";
         } else if (const auto *part = this->FindCustomPartitionById(storage_id); part != nullptr) {
-            s64 total_space, free_space;
-            R_TRY(m_fs.GetTotalSpace("/", std::addressof(total_space)));
-            R_TRY(m_fs.GetFreeSpace("/", std::addressof(free_space)));
+            /* Check existence by attempting to open the directory, using the same
+             * path the object database stores (obj->GetName(), which has the
+             * leading // produced by CreateOrFindObject).  GetEntryType is not
+             * used here because it is stricter about path normalisation than
+             * OpenDirectory and would fail even for valid paths in this codebase. */
+            s64 total_space = 0, free_space = 0;
+
+            auto * const root_obj = m_object_database.GetObjectById(part->storage_id);
+            if (root_obj != nullptr) {
+                FsDir check_dir;
+                if (R_SUCCEEDED(m_fs.OpenDirectory(root_obj->GetName(), FsDirOpenMode_ReadDirs | FsDirOpenMode_ReadFiles, std::addressof(check_dir)))) {
+                    m_fs.CloseDirectory(std::addressof(check_dir));
+                    R_TRY(m_fs.GetTotalSpace("/", std::addressof(total_space)));
+                    R_TRY(m_fs.GetFreeSpace("/", std::addressof(free_space)));
+                }
+            }
 
             storage_info.max_capacity        = total_space;
             storage_info.free_space_in_bytes = free_space;
@@ -186,9 +205,19 @@ namespace haze {
         auto * const obj = m_object_database.GetObjectById(association_object_handle);
         R_UNLESS(obj != nullptr, haze::ResultInvalidObjectId());
 
-        /* Try to read the object as a directory. */
+        /* Try to read the object as a directory.  For custom partition roots whose
+         * configured folder is absent, respond with AccessDenied so Windows shows
+         * a visible error dialog.  InvalidStorageId is silently swallowed by
+         * Explorer (it just shows an empty folder), so we write the response
+         * directly here rather than throwing through the R_CATCH dispatch. */
         FsDir dir;
-        R_TRY(m_fs.OpenDirectory(obj->GetName(), FsDirOpenMode_ReadDirs | FsDirOpenMode_ReadFiles, std::addressof(dir)));
+        const Result open_rc = m_fs.OpenDirectory(obj->GetName(), FsDirOpenMode_ReadDirs | FsDirOpenMode_ReadFiles, std::addressof(dir));
+        if (R_FAILED(open_rc)) {
+            if (this->FindCustomPartitionById(association_object_handle) != nullptr) {
+                R_RETURN(this->WriteResponse(PtpResponseCode_AccessDenied));
+            }
+            R_RETURN(open_rc);
+        }
 
         /* Ensure we maintain a clean state on exit. */
         ON_SCOPE_EXIT { m_fs.CloseDirectory(std::addressof(dir)); };
@@ -251,10 +280,10 @@ namespace haze {
             object_info.storage_id    = StorageId_SdmcFs;
             object_info.object_format    = PtpObjectFormatCode_Association;
             object_info.association_type = PtpAssociationType_GenericFolder;
-            object_info.filename         = "SD Card";
+            object_info.filename         = "!SD Card";
         } else if (const auto *part = this->FindCustomPartitionById(object_id); part != nullptr) {
             /* Custom partition root: show the configured display name. */
-            object_info.storage_id       = (haze::StorageId)part->storage_id;
+            object_info.storage_id       = static_cast<StorageId>(part->storage_id);
             object_info.object_format    = PtpObjectFormatCode_Association;
             object_info.association_type = PtpAssociationType_GenericFolder;
             object_info.filename         = part->name;
