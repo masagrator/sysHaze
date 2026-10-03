@@ -25,8 +25,12 @@ namespace haze {
         public:
             util::IntrusiveRedBlackTreeNode m_name_node;
             util::IntrusiveRedBlackTreeNode m_object_id_node;
+            s64 m_size;       /* Last known file size, used to detect external modification. */
             u32 m_parent_id;
             u32 m_object_id;
+            bool m_is_dir;    /* Last known entry type. */
+            bool m_visited;   /* The host has enumerated this directory, so it is watched for changes. */
+            bool m_seen;      /* Scratch mark used while diffing a watched directory. */
             char m_name[];
         public:
             const char *GetName()  const { return m_name; }
@@ -102,6 +106,18 @@ namespace haze {
         public:
             PtpObject *GetObjectById(u32 object_id);
             PtpObject *GetObjectByName(const char *name);
+
+            /* Delete an object along with every descendant still in the database. */
+            void DeleteObjectTree(PtpObject *obj);
+
+            /* Iterate over all registered objects, in ascending object ID order. */
+            /* The callback must not add or remove objects. */
+            template <typename F>
+            void ForEachObject(F &&f) {
+                for (auto it = m_object_id_tree.begin(); it != m_object_id_tree.end(); ++it) {
+                    f(*it);
+                }
+            }
     };
 
 }

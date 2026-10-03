@@ -25,7 +25,25 @@ namespace haze {
 
     class PtpDataParser;
 
-    class PtpResponder final {
+    class PtpResponder final : public UsbIdleHandler {
+        private:
+            /* Change notification (MTP events) state. */
+            struct PendingEvent {
+                u16 code;
+                u32 handle;
+            };
+            static constexpr size_t MaxPendingEvents      = 64;
+            static constexpr s64    PollIntervalNs        = 1'000'000'000;
+            static constexpr size_t MaxDirectoriesPerPoll = 32;
+            static constexpr size_t SweepBatchSize        = 32;
+
+            PendingEvent m_pending_events[MaxPendingEvents];
+            size_t m_pending_event_head;
+            size_t m_pending_event_count;
+            u32 m_event_urb_id;
+            bool m_event_in_flight;
+            u64 m_next_poll_tick;
+            u32 m_poll_cursor;
         private:
             AsyncUsbServer m_usb_server;
             FileSystemProxy m_fs;
@@ -47,7 +65,7 @@ namespace haze {
             CustomPartition m_custom_partitions[MaxCustomPartitions];
             size_t m_custom_partition_count;
         public:
-            constexpr explicit PtpResponder() : m_usb_server(), m_fs(), m_request_header(), m_object_heap(), m_buffers(), m_send_object_id(), m_session_open(), m_object_database(), m_custom_partitions(), m_custom_partition_count(0) { /* ... */ }
+            constexpr explicit PtpResponder() : m_pending_events(), m_pending_event_head(), m_pending_event_count(), m_event_urb_id(), m_event_in_flight(), m_next_poll_tick(), m_poll_cursor(), m_usb_server(), m_fs(), m_request_header(), m_object_heap(), m_buffers(), m_send_object_id(), m_session_open(), m_object_database(), m_custom_partitions(), m_custom_partition_count(0) { /* ... */ }
 
             Result Initialize(EventReactor *reactor, PtpObjectHeap *object_heap);
             void Finalize();
@@ -59,6 +77,21 @@ namespace haze {
             bool IsStorageRoot(u32 object_id) const;
             const CustomPartition *FindCustomPartitionById(u32 storage_id) const;
             u32 GetStorageForObject(u32 object_id);
+            u32 GetReportedParentId(const PtpObject *obj) const;
+        public:
+            /* UsbIdleHandler. */
+            s64 GetIdleTimeoutNs() override;
+            void OnIdleTimeout() override;
+            bool IsInterruptTransferPending() override { return m_event_in_flight; }
+            void OnInterruptTransferComplete() override;
+        private:
+            /* Change detection and event delivery. */
+            void ClearPendingEvents();
+            bool QueueEvent(PtpEventCode code, u32 handle);
+            void SendNextEvent();
+            void PollForChanges();
+            void PollDirectory(u32 dir_id);
+            void UpdateObjectSize(PtpObject *obj, FsFile *file);
         private:
             /* Request handling. */
             Result HandleRequest();

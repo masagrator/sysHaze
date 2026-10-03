@@ -24,6 +24,7 @@ namespace haze {
     class PtpDataParser final {
         private:
             AsyncUsbServer *m_server;
+            UsbIdleHandler *m_idle_handler;
             u32 m_received_size;
             u32 m_offset;
             u8 *m_data;
@@ -41,10 +42,16 @@ namespace haze {
                     m_eot = m_received_size < haze::UsbBulkPacketBufferSize;
                 };
 
+                /* Only the very first packet (the next command) is waited for in idle mode. */
+                if (auto * const idle_handler = m_idle_handler; idle_handler != nullptr) {
+                    m_idle_handler = nullptr;
+                    R_RETURN(m_server->ReadPacketWhileIdle(m_data, haze::UsbBulkPacketBufferSize, std::addressof(m_received_size), idle_handler));
+                }
+
                 R_RETURN(m_server->ReadPacket(m_data, haze::UsbBulkPacketBufferSize, std::addressof(m_received_size)));
             }
         public:
-            constexpr explicit PtpDataParser(void *data, AsyncUsbServer *server) : m_server(server), m_received_size(), m_offset(), m_data(static_cast<u8 *>(data)), m_eot() { /* ... */ }
+            constexpr explicit PtpDataParser(void *data, AsyncUsbServer *server, UsbIdleHandler *idle_handler = nullptr) : m_server(server), m_idle_handler(idle_handler), m_received_size(), m_offset(), m_data(static_cast<u8 *>(data)), m_eot() { /* ... */ }
 
             Result Finalize() {
                 /* Read until the transmission completes. */

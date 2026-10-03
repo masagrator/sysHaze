@@ -141,6 +141,9 @@ namespace haze {
             R_TRY(read_res);
         }
 
+        /* Keep the tracked size in sync so this host-initiated write doesn't raise an event. */
+        this->UpdateObjectSize(obj, std::addressof(file));
+
         /* Write the success response. */
         R_RETURN(this->WriteResponse(PtpResponseCode_Ok));
     }
@@ -166,6 +169,7 @@ namespace haze {
 
         /* Truncate the file. */
         R_TRY(m_fs.SetFileSize(std::addressof(file), size));
+        obj->m_size = size;
 
         /* Write the success response. */
         R_RETURN(this->WriteResponse(PtpResponseCode_Ok));

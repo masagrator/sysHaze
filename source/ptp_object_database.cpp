@@ -73,6 +73,10 @@ namespace haze {
         /* Set object properties. */
         object->m_parent_id = parent_id;
         object->m_object_id = 0;
+        object->m_size      = 0;
+        object->m_is_dir    = false;
+        object->m_visited   = false;
+        object->m_seen      = false;
 
         /* Set output. */
         *out_object = object;
@@ -147,6 +151,34 @@ namespace haze {
             return std::addressof(*it);
         } else {
             return nullptr;
+        }
+    }
+
+    void PtpObjectDatabase::DeleteObjectTree(PtpObject *obj) {
+        /* Remove the object itself. */
+        this->DeleteObject(obj);
+
+        /* Then repeatedly remove orphans (objects whose parent no longer exists) until none are left. */
+        /* This removes the whole subtree without recursion or an unbounded work list. */
+        constexpr size_t BatchSize = 32;
+        PtpObject *orphans[BatchSize];
+
+        while (true) {
+            size_t count = 0;
+            for (auto it = m_object_id_tree.begin(); it != m_object_id_tree.end() && count < BatchSize; ++it) {
+                const u32 parent_id = it->GetParentId();
+                if (parent_id != PtpGetObjectHandles_RootParent && this->GetObjectById(parent_id) == nullptr) {
+                    orphans[count++] = std::addressof(*it);
+                }
+            }
+
+            if (count == 0) {
+                break;
+            }
+
+            for (size_t i = 0; i < count; i++) {
+                this->DeleteObject(orphans[i]);
+            }
         }
     }
 }
