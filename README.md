@@ -26,3 +26,7 @@ Path=atmosphere/contents
 ```
 
 Max 8 entries is allowed.
+
+# Other
+
+Used Claude to fix an issue with clients caching constantly folders that were visited in current session
