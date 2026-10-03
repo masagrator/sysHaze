@@ -1,0 +1,45 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: devkitpro/devkita64:latest
+
+    steps:
+      - name: Checkout sysHaze
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      # The container's libnx release can lag behind; build and install libnx master over it.
+      - name: Build and install libnx (master)
+        run: |
+          git clone --depth 1 https://github.com/switchbrew/libnx.git /tmp/libnx
+          echo "libnx master: $(git -C /tmp/libnx rev-parse --short HEAD)"
+          # Remove the shipped headers/libs so no stale files from the old release remain.
+          rm -rf "$DEVKITPRO/libnx/include" "$DEVKITPRO/libnx/lib"
+          make -C /tmp/libnx -j"$(nproc)"
+          make -C /tmp/libnx install
+
+      - name: Build sysHaze
+        # TARGET pinned so the output is sysHaze.nsp even if the repo folder is named differently (e.g. a fork).
+        run: make -j"$(nproc)" TARGET=sysHaze
+
+      - name: Package for SD card
+        run: |
+          TID=0000000000000123
+          mkdir -p out/atmosphere/contents/$TID/flags
+          cp sysHaze.nsp out/atmosphere/contents/$TID/exefs.nsp
+          cp toolbox.json out/atmosphere/contents/$TID/toolbox.json
+          touch out/atmosphere/contents/$TID/flags/boot2.flag
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: sysHaze
+          path: out/

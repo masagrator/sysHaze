@@ -170,7 +170,7 @@ namespace haze {
                     break;
                 case PtpObjectPropertyCode_ParentObject:
                     {
-                        R_TRY(db.Add(obj->GetParentId()));
+                        R_TRY(db.Add(this->GetReportedParentId(obj)));
                     }
                     break;
                 case PtpObjectPropertyCode_ObjectFormat:
@@ -315,7 +315,7 @@ namespace haze {
                     case PtpObjectPropertyCode_ParentObject:
                         {
                             R_TRY(db.Add(PtpDataTypeCode_U32));
-                            R_TRY(db.Add(obj->GetParentId()));
+                            R_TRY(db.Add(this->GetReportedParentId(obj)));
                         }
                         break;
                     case PtpObjectPropertyCode_ObjectFormat:
@@ -421,6 +421,11 @@ namespace haze {
                 R_TRY(m_fs.RenameFile(obj->GetName(), newobj->GetName()));
             }
         }
+
+        /* Carry over change-tracking state. */
+        newobj->m_is_dir  = obj->m_is_dir;
+        newobj->m_size    = obj->m_size;
+        newobj->m_visited = obj->m_visited;
 
         /* Unregister and free the old object. */
         m_object_database.DeleteObject(obj);

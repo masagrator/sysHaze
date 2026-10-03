@@ -33,6 +33,11 @@ namespace haze {
         m_object_heap = object_heap;
         m_buffers = GetBuffers();
 
+        /* Fresh USB stack: no event transfer can be outstanding. */
+        m_event_in_flight = false;
+        m_poll_cursor     = 0;
+        this->ClearPendingEvents();
+
         /* Configure fs proxy. */
         m_fs.Initialize(reactor, fsdevGetDeviceFileSystem("sdmc"));
 
@@ -181,6 +186,16 @@ namespace haze {
         return obj->GetObjectId();
     }
 
+    /* -----------------------------------------------------------------------
+     * Helper: GetReportedParentId
+     * Per the MTP spec, objects at the root of a storage report parent 0.
+     * Hosts rely on this to place objects announced via ObjectAdded.
+     * ----------------------------------------------------------------------- */
+    u32 PtpResponder::GetReportedParentId(const PtpObject *obj) const {
+        const u32 parent_id = obj->GetParentId();
+        return this->IsStorageRoot(parent_id) ? 0 : parent_id;
+    }
+
     void PtpResponder::Finalize() {
         m_usb_server.Finalize();
         m_fs.Finalize();
@@ -252,7 +267,8 @@ namespace haze {
     }
 
     Result PtpResponder::HandleRequestImpl() {
-        PtpDataParser dp(m_buffers->usb_bulk_read_buffer, std::addressof(m_usb_server));
+        /* While waiting for the next command, poll for external changes and deliver events. */
+        PtpDataParser dp(m_buffers->usb_bulk_read_buffer, std::addressof(m_usb_server), this);
         R_TRY(dp.Read(std::addressof(m_request_header)));
 
         switch (m_request_header.type) {
@@ -296,6 +312,8 @@ namespace haze {
         if (m_session_open) {
             m_session_open = false;
             m_object_database.Finalize();
+            this->ClearPendingEvents();
+            m_poll_cursor = 0;
         }
     }
 

@@ -61,6 +61,9 @@ namespace haze {
         /* Initialize the database. */
         m_session_open = true;
         m_object_database.Initialize(m_object_heap);
+        this->ClearPendingEvents();
+        m_poll_cursor    = 0;
+        m_next_poll_tick = armGetSystemTick() + armNsToTicks(PollIntervalNs);
 
         /* Register the SD card storage root. */
         PtpObject *object;
@@ -240,11 +243,18 @@ namespace haze {
 
             /* Write to output. */
             for (s64 i = 0; i < read_count; i++) {
-                const char *name = m_buffers->file_system_entry_buffer[i].name;
-                u32 handle;
+                const auto &entry = m_buffers->file_system_entry_buffer[i];
 
-                R_TRY(m_object_database.CreateAndRegisterObjectId(obj->GetName(), name, obj->GetObjectId(), std::addressof(handle)));
-                R_TRY(db.Add(handle));
+                PtpObject *child;
+                R_TRY(m_object_database.CreateOrFindObject(obj->GetName(), entry.name, obj->GetObjectId(), std::addressof(child)));
+                m_object_database.RegisterObject(child);
+
+                /* Remember what the host now knows, so later changes can be detected. */
+                child->m_is_dir = entry.type == FsDirEntryType_Dir;
+                child->m_size   = child->m_is_dir ? 0 : entry.file_size;
+                child->m_seen   = true;
+
+                R_TRY(db.Add(child->GetObjectId()));
             }
 
             /* If we read fewer than the batch size, we're done. */
@@ -255,6 +265,9 @@ namespace haze {
 
         /* Flush the data response. */
         R_TRY(db.Commit());
+
+        /* The host now caches this directory's contents; watch it for changes. */
+        obj->m_visited = true;
 
         /* Write the success response. */
         R_RETURN(this->WriteResponse(PtpResponseCode_Ok));
@@ -309,7 +322,7 @@ namespace haze {
 
             object_info.filename               = std::strrchr(obj->GetName(), '/') + 1;
             object_info.object_compressed_size = size;
-            object_info.parent_object          = obj->GetParentId();
+            object_info.parent_object          = this->GetReportedParentId(obj);
 
             if (entry_type == FsDirEntryType_Dir) {
                 object_info.object_format    = PtpObjectFormatCode_Association;
@@ -465,6 +478,8 @@ namespace haze {
         new_object_info.object_id = obj->GetObjectId();
 
         /* Create the object on the filesystem. */
+        obj->m_is_dir = info.object_format == PtpObjectFormatCode_Association;
+        obj->m_size   = 0;
         if (info.object_format == PtpObjectFormatCode_Association) {
             R_TRY(m_fs.CreateDirectory(obj->GetName()));
             m_send_object_id = 0;
@@ -533,6 +548,7 @@ namespace haze {
 
         /* Truncate the file to the received size. */
         R_TRY(m_fs.SetFileSize(std::addressof(file), offset));
+        obj->m_size = offset;
 
         /* Write the success response. */
         R_RETURN(this->WriteResponse(PtpResponseCode_Ok));
@@ -562,8 +578,8 @@ namespace haze {
             R_TRY(m_fs.DeleteFile(obj->GetName()));
         }
 
-        /* Remove the object from the database. */
-        m_object_database.DeleteObject(obj);
+        /* Remove the object, and anything known beneath it, from the database. */
+        m_object_database.DeleteObjectTree(obj);
 
         /* Write the success response. */
         R_RETURN(this->WriteResponse(PtpResponseCode_Ok));

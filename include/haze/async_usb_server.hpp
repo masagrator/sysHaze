@@ -20,6 +20,20 @@
 
 namespace haze {
 
+    /* Hooks invoked while the server is idle waiting for the host's next command. */
+    class UsbIdleHandler {
+        public:
+            virtual ~UsbIdleHandler() = default;
+
+            /* How long we may wait for the host before OnIdleTimeout() should run (negative = forever). */
+            virtual s64 GetIdleTimeoutNs() = 0;
+            virtual void OnIdleTimeout() = 0;
+
+            /* Whether an interrupt (event) transfer is outstanding, and its completion callback. */
+            virtual bool IsInterruptTransferPending() = 0;
+            virtual void OnInterruptTransferComplete() = 0;
+    };
+
     class AsyncUsbServer final {
         private:
             EventReactor *m_reactor;
@@ -39,6 +53,15 @@ namespace haze {
                 u32 size_transferred;
                 R_RETURN(this->TransferPacketImpl(false, page, size, std::addressof(size_transferred)));
             }
+
+            /* Read a packet, servicing the idle handler (filesystem polling, event delivery) while waiting. */
+            Result ReadPacketWhileIdle(void *page, u32 size, u32 *out_size_transferred, UsbIdleHandler *idle_handler) const;
+
+            /* Interrupt endpoint (MTP events). Buffer must be 0x1000-aligned. */
+            Result PostInterruptAsync(void *page, u32 size, u32 *out_urb_id) const;
+            Result GetInterruptResult(u32 urb_id, u32 *out_size_transferred) const;
+            Event *GetInterruptCompletionEvent() const;
+            bool IsConfigured() const;
     };
 
 }

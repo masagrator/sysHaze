@@ -45,8 +45,13 @@ namespace haze {
                 const Waiter arg_waiter_array[] = { arg_waiters... };
                 return this->WaitForImpl(out_arg_waiter, arg_waiter_array, sizeof...(Args));
             }
+
+            /* Like WaitFor, but gives up after timeout_ns and returns svc::ResultTimedOut. */
+            Result WaitForWithTimeout(s32 *out_arg_waiter, const Waiter *arg_waiters, s32 num_arg_waiters, s64 timeout_ns) {
+                return this->WaitForImpl(out_arg_waiter, arg_waiters, num_arg_waiters, timeout_ns);
+            }
         private:
-            Result WaitForImpl(s32 *out_arg_waiter, const Waiter *arg_waiters, s32 num_arg_waiters);
+            Result WaitForImpl(s32 *out_arg_waiter, const Waiter *arg_waiters, s32 num_arg_waiters, s64 timeout_ns = -1);
     };
 
 }

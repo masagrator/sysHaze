@@ -76,7 +76,13 @@ namespace haze {
         PtpOperationCode_AndroidEndEditObject,
     };
 
-    constexpr const PtpEventCode SupportedEventCodes[]                = { /* ... */ };
+    /* Events we raise when the SD card changes behind the host's back (e.g. another homebrew writes files). */
+    /* Hosts such as Windows cache directory listings and only refresh them when told to by these events. */
+    constexpr const PtpEventCode SupportedEventCodes[] = {
+        PtpEventCode_ObjectAdded,
+        PtpEventCode_ObjectRemoved,
+        PtpEventCode_ObjectInfoChanged,
+    };
     constexpr const PtpDevicePropertyCode SupportedDeviceProperties[] = { /* ... */ };
     constexpr const PtpObjectFormatCode SupportedCaptureFormats[]     = { /* ... */ };
 
@@ -186,6 +192,10 @@ namespace haze {
         FsDirectoryEntry file_system_entry_buffer[DirectoryReadSize];
         u8 file_system_data_buffer[FsBufferSize];
 
+        /* Full path scratch buffer for change polling (parent path + '/' + entry name). */
+        char poll_path_buffer[2 * FS_MAX_PATH + 2];
+
+        alignas(4_KB) u8 usb_interrupt_buffer[4_KB];
         alignas(4_KB) u8 usb_bulk_write_buffer[UsbBulkPacketBufferSize];
         alignas(4_KB) u8 usb_bulk_read_buffer[UsbBulkPacketBufferSize];
     };
